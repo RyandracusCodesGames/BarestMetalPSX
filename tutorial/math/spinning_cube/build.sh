@@ -1,0 +1,2 @@
+#!/bin/bash
+./vsasm -oexe -nowarnings spinning_cube.asm -o main.exe

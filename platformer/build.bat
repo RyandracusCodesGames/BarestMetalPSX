@@ -1,0 +1,1 @@
+vsasm -oexe platformer.asm -o main.exe

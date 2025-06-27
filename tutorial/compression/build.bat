@@ -1,0 +1,1 @@
+vsasm -oexe compression.asm -o main.exe

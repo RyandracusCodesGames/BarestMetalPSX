@@ -1,0 +1,1 @@
+vsasm -oexe pong.asm -o main.exe

@@ -1,0 +1,1 @@
+vsasm -oexe lines.asm -o main.exe

@@ -1,0 +1,1 @@
+vsasm -oexe init_gte.asm -o main.exe

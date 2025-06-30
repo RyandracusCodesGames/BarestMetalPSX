@@ -85,6 +85,18 @@ vs_clamp_min:
 	jr ra 
 	nop
 	
+# Function: VS_Swap16
+# Purpose: Swaps the least and most significant bytes of a 16-bit integer
+# a0: hword
+VS_Swap16:
+	sra a1, a0, 8 ; msb = hword >> 8;
+	andi a1, $FF  ; msb &= 0xFF;
+	andi a0, $FF  ; lsb = hword & 0xFF;
+	sll a0, 8     ; lsb << 8;
+	or v0, a0, a1 ; return lsb | msb;
+	jr ra 
+	nop
+	
 # Function: VS_Int2Fixed
 # Purpose: Converts an integer into the PlayStation's 20.12 Fixed-Point format
 # a0: int

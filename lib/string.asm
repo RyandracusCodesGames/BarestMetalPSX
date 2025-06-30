@@ -27,25 +27,6 @@ StrlenEnd:
 	jr ra 
 	nop
 	
-# Function: VS_Strnlen
-# Purpose: Returns the length, up to a pre-defined max length, of an input string 
-# a0: string, a1: max_len
-VS_Strnlen:
-	lbu a2, 0(a0)       ; c = *string;
-	addiu a0, 1         ; string++; (Delay Slot)
-	beqz a2, StrnEnd    ; if(c == 0) { goto StrlenEnd; }
-	move v0, zero       ; length = 0; (Delay Slot)
-StrnLoop:
-	lbu a2, 0(a0)       ; c = *string;
-	addiu a0, 1         ; string++; (Delay Slot);
-	beq v0, a1, StrnEnd ; if(length == max_len) { goto StrnEnd; }
-	nop
-	bnez a2, StrnLoop   ; if(c == 0) { goto StrnLoop; } 
-	addiu v0, 1         ; length++; (Delay Slot)
-StrnEnd:
-	jr ra 
-	nop
-	
 # Function: VS_Strcpy
 # Purpose: Copies the contents of an input string into a destination string 
 # a0: dest, a1: src 
@@ -59,18 +40,17 @@ StrcpyLoop:
 	lbu a2, 0(a1)       ; c = *src;
 	addiu a1, 1         ; src++; (Delay Slot);
 	sb a2, 0(a0)        ; *dest = c;
-	bnez a2, StrcpyLoop ; if(c == 0) { goto StrcpyLoop; } 
+	bnez a2, StrcpyLoop ; if(c != 0) { goto StrcpyLoop; } 
 	addiu a0, 1         ; dest++; (Delay Slot)
 StrcpyEnd:
-	sb zero, 0(a0)      ; *dest = '\0';
 	jr ra 
 	nop
 	
-# Function: VS_Strcpy
+# Function: VS_Strncpy
 # Purpose: Copies the contents of the first n characters of an input string into a destination string
 # a0: dest, a1: src, a2: max_len
 VS_Strncpy:
-	beqz a2, StrncpyEnd    ; if(max_len == 0) { goto StrncpyEnd; }
+	blez a2, StrncpyEnd    ; if(max_len <= 0) { goto StrncpyEnd; }
 	addu a3, a1, a2        ; max_src = src + max_len; (Delay Slot)
 	lbu a2, 0(a1)          ; c = *src;
 	addiu a1, 1            ; src++; (Delay Slot)
@@ -85,7 +65,6 @@ StrncpyLoop:
 	bnez a2, StrncpyLoop   ; if(c == 0) { goto StrcpyLoop; } 
 	addiu a0, 1            ; dest++; (Delay Slot)
 StrncpyEnd:
-	sb zero, 0(a0)         ; *dest = '\0';
 	jr ra 
 	nop
 	
@@ -98,11 +77,12 @@ VS_Strcmp:
 strcmploop:
 	lbu a2, 0(a0)       ; c1 = *str1;
 	addiu a0, 1         ; str1++; (Delay Slot)
+	beqz a2, retzero    ; if(c1 == 0) { goto retzero; }
 	lbu a3, 0(a1)       ; c2 = *str2;
 	addiu a1, 1         ; str2++; (Delay Slot)
 	bne a2, a3, retcmp  ; if(c1 != c2) { goto retcmp; }
 	nop
-	bnez a2, strcmploop ; if(c1 != 0) { goto strcmploop; } 
+	bnez a3, strcmploop ; if(c2 != 0) { goto strcmploop; } 
 	nop 
 retzero:
 	move v0, zero      ; return 0;
@@ -235,6 +215,38 @@ catnend:
 # Purpose: Searches for a substring in a string and returns the pointer to the first occurence of substring
 # a0: str, a1: substr 
 VS_Strstr:
+	move a2, a1           ; string = substr;
+	lbu a3, 0(a2)         ; c = *string;
+	addiu a2, 1           ; string++; (Delay Slot)
+	beqz a3, retstrstr    ; if(c == 0) { goto retstrstr; }
+	move v1, zero         ; length = 0; (Delay Slot)
+strstrlen:
+	lbu a3, 0(a2)         ; c = *string;
+	addiu a2, 1           ; string++; (Delay Slot);
+	bnez a3, strstrlen    ; if(c == 0) { goto StrlenLoop; } 
+	addiu v1, 1           ; length++; (Delay Slot)
+vs_strstr:
+	lbu a2, 0(a0)         ; byte = *str;
+	addiu a0, 1           ; str++; (Delay Slot)
+	beqz a2, retstrzero   ; if(byte == 0) { goto retstrzero; } 
+	move a3, a1           ; b = substr; (Delay Slot)
+	move a2, a0           ; a = str;
+	move t0, v1           ; len = length;
+strstrloop:
+	lbu t1, 0(a2)         ; byte1 = *a;
+	addiu a2, 1           ; a++; (Delay Slot)
+	lbu t2, 0(a3)         ; byte2 = *b;
+	addiu a3, 1           ; b++; (Delay Slot)
+	bne t1, t2, vs_strstr ; if(byte1 != byte2) { goto vs_strstr; }
+	subi t0, 1            ; len--; (Delay Slot)
+	bgtz t0, strstrloop   ; if(len > 0) { goto strstrloop; } 
+	nop 
+retstrstr:
+	move v0, a0           ; return str;
+	jr ra 
+	nop
+retstrzero:
+	move v0, zero         ; return zero;
 	jr ra 
 	nop
 	

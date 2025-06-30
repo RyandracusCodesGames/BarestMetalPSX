@@ -21,11 +21,10 @@ VS_Memset:
 	nop
 align_word:
 	sb a1, 0(a0)              ; *dest = src;
-	subi a2, 1                ; size--;
-	addi a0, 1                ; dest++;
+	addiu a0, 1               ; dest++;
 	andi a3, a0, 3            ; word_align = dest & 3;
 	bnez a3, align_word       ; if(word_align) { goto align_word; }
-	nop
+	subi a2, 1                ; size-- (Delay Slot);
 setup_word_chunk:
 	sll t0, a1, 24            ; msb1 = src << 24;
 	sll t1, a1, 16            ; msb2 = src << 16;
@@ -34,9 +33,9 @@ setup_word_chunk:
 	or t0, t0, t2             ; msb |= lsb1;
 	or t0, t0, a1             ; word = msb | src;
 	li t1, 32                 ; min_size = 32;
-memset_word:
 	blt a2, t1, small_memset  ; if(size < min_size) { goto small_memset; } 
-	nop 
+	nop
+memset_word:
 	sw t0, 0(a0)              ; dest[0] = word;
 	sw t0, 4(a0)              ; dest[1] = word;
 	sw t0, 8(a0)              ; dest[2] = word;
@@ -46,7 +45,7 @@ memset_word:
 	sw t0, 24(a0)             ; dest[6] = word;
 	sw t0, 28(a0)             ; dest[7] = word;
 	subiu a2, 32              ; size -= 32;
-	b memset_word             ; goto memset_word;
+	bge a2, t1, memset_word   ; if(size >= min_size){ goto memset_word; }
 	addi a0, 32               ; dest += 32; (Delay Slot)
 small_memset:
 	sb a1, 0(a0)              ; *dest = src;
@@ -62,25 +61,24 @@ return_memset:
 # Ref: https://github.com/JNechaevsky/jaguar-doom/blob/5ab926c33f7769a9db0a91e7628960c9400ecdbb/d_main.c#L41
 # a0: dest, a1: src, a2: size
 VS_Memset16:
-	li t0, 32                    ; min_size = 32;
+	li t0, 16                    ; min_size = 16;
 	ble a2, t0, small_memset_16  ; if(size <= min_size) { goto small_memset; }
 	andi a3, a0, 3               ; word_align = dest & 3;
 	beqz a3, setup_word_chunk_16 ; if(word_align) { goto setup_word_chunk; }
 	nop
 align_word_16:
 	sh a1, 0(a0)                 ; *dest = src;
-	subi a2, 1                   ; size--;
 	addi a0, 2                   ; dest += 2;
 	andi a3, a0, 3               ; word_align = dest & 3;
 	bnez a3, align_word_16       ; if(word_align) { goto align_word; }
-	nop
+	subi a2, 1                   ; size-- (Delay Slot);
 setup_word_chunk_16:
 	sll t0, a1, 16               ; msb1 = src << 16;
 	or t0, t0, a1                ; word = msb | src;
-	li t1, 32                    ; min_size = 32;
-memset_word_16:
+	li t1, 16                    ; min_size = 32;
 	blt a2, t1, small_memset_16  ; if(size < min_size) { goto small_memset; } 
-	nop 
+	nop
+memset_word_16:
 	sw t0, 0(a0)                 ; dest[0] = word;
 	sw t0, 4(a0)                 ; dest[1] = word;
 	sw t0, 8(a0)                 ; dest[2] = word;
@@ -90,7 +88,7 @@ memset_word_16:
 	sw t0, 24(a0)                ; dest[6] = word;
 	sw t0, 28(a0)                ; dest[7] = word;
 	subiu a2, 16                 ; size -= 16;
-	b memset_word_16             ; goto memset_word_16;
+	bge a2, t1, memset_word_16   ; if(size >= min_size){ goto memset_word; }
 	addi a0, 32                  ; dest += 32; (Delay Slot)
 small_memset_16:
 	sh a1, 0(a0)                 ; *dest = src;
@@ -164,7 +162,7 @@ memcpy_end:
 	nop
 	
 # Function: VS_Memcmp
-# Purpose: Compares two blocks of memory 
+# Purpose: Compares the first size bytes of two blocks of memory, returns 0 if the two blocks of memory are equivalent
 # a0: mem1, a1: mem2, a2: size
 VS_Memcmp:
 	lbu a3, 0(a0)         ; byte1 = *mem1;
@@ -172,7 +170,7 @@ VS_Memcmp:
 	lbu t0, 0(a1)         ; byte2 = *mem2;
 	addiu a1, 1           ; mem2++; (Delay Slot)
 	bne a3, t0, retmemcmp ; if(byte1 != byte2) { goto retmemcmp; }
-	nop
+	subi a2, 1            ; size--; (Delay Slot)
 	bgtz a2, VS_Memcmp    ; if(size > 0) { goto VS_Memcmp; } 
 	nop 
 retmemzero:
@@ -208,7 +206,7 @@ retdest:
 # a0: src, a1: ch, a2: size
 VS_Memchr:
 	lbu a3, 0(a0)          ; byte = *src;
-	addi a0, 1             ; src++; (Delay Slot)
+	addiu a0, 1            ; src++; (Delay Slot)
 	beq a3, a1, retmemchr  ; if(byte == ch) { goto retmemchr; }
 	subi a2, 1             ; size--; (Delay Slot)
 	bgtz a2, VS_Memchr     ; if(size > 0) { goto VS_Memchr; } 
@@ -235,7 +233,7 @@ copybackwards:
 	subiu a1, 1              ; src--; (Delay Slot) 
 	subi a2, 1               ; size--;
 	sb t0, 0(a0)             ; *dest = byte;
-	bgtz a2, copyforwards    ; if(size > 0) { goto copyforwards; }
+	bgtz a2, copybackwards   ; if(size > 0) { goto copybackwards; }
 	subiu a0, 1              ; dest--; (Delay Slot)
 	jr ra 
 	nop

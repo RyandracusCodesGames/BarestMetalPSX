@@ -47,6 +47,7 @@ VS_IRQ_VSYNC equ 1
 VS_CMD_FLUSH_CACHE equ $01000000 
 VS_CMD_FILL_VRAM equ $02000000
 VS_CMD_CPU_TO_VRAM equ $A0000000          ; A Command to Send Data from Main Memory to VRAM 
+VS_CMD_VRAM_TO_CPU equ $C0000000          ; A Command to Send Data from VRAM to Main Memory
 VS_CMD_VRAM_TO_VRAM equ $80000000         ; A Command to Transfer Data from One Area of VRAM to Another Area of VRAM 
 VS_GPU_DMA equ $10A0                      ; DMA Channel 2(GPU) Address for Transfering Image Data and Display Lists
 VS_GPU_BCR equ $10A4                      ; DMA Block Control Register for Setting DMA Transfer Size
@@ -55,6 +56,7 @@ VS_CMD_STAT_READY equ $4000000
 VS_DMA_ENABLE equ $1000000
 VS_CMD_DISABLE_DMA equ $04000000 
 VS_CMD_ENABLE_DMA equ $04000002
+VS_CMD_ENABLE_DMA_READ equ $04000003
 ; PlayStation Rasterization Commands 
 VS_CMD_DRAW_LINE equ $40000000
 VS_CMD_DRAW_SEMI_TRANS_LINE equ $42000000
@@ -72,12 +74,36 @@ VS_CMD_FILL_TRIANGLE equ $20000000
 VS_CMD_FILL_SEMI_TRANS_TRIANGLE equ $22000000
 VS_CMD_SHADE_TRIANGLE equ $30000000
 VS_CMD_SHADE_SEMI_TRANS_TRIANGLE equ $32000000
+VS_CMD_TEXTURE_BLEND_TRIANGLE equ $24000000
 VS_CMD_TEXTURE_TRIANGLE equ $25000000
+VS_CMD_TEXTURE_SEMI_TRANS_TRIANGLE equ $27000000
+VS_CMD_TEXTURE_BLEND_ST_TRIANGLE equ $26000000
 VS_CMD_FILL_QUAD equ $28000000
 VS_CMD_FILL_SEMI_TRANS_QUAD equ $2A000000
 VS_CMD_SHADE_QUAD equ $38000000
 VS_CMD_SHADE_SEMI_TRANS_QUAD equ $3A000000
+VS_CMD_TEXTURE_BLEND_QUAD equ $2C000000
 VS_CMD_TEXTURE_QUAD equ $2D000000
+VS_CMD_TEXTURE_SEMI_TRANS_QUAD equ $2F000000
+VS_CMD_TEXTURE_ST_BLEND_QUAD equ $2E000000
+VS_CMD_SHADE_TEXTURE_QUAD equ $3C000000
+
+# Function: VS_ResetGPU
+# Purpose: Sends a reset command to the GP1 control register
+VS_ResetGPU:
+	li a0, VS_IO 
+	sw zero, VS_GP1(a0)
+	jr ra 
+	nop
+	
+# Function: VS_ClearGPUFIFO
+# Purpose: Sends a reset gpu FIFO command to the GP1 control register
+VS_ClearGPUFIFO:
+	li a0, VS_IO 
+	li a1, $01000000
+	sw a1, VS_GP1(a0)
+	jr ra 
+	nop
 
 # Function: VS_FillVram
 # Purpose: Fills a rectangular area in VRAM with a solid monochrome color
@@ -180,6 +206,8 @@ VS_GetCLUT:
 	or   v0, a0, a1  ; y |= x;
 	jr ra 
 	nop
+	
+
 	
 # Function: VS_DrawMonochromeLine
 # Purpose: Draws a monochrome line to the display area
@@ -647,6 +675,115 @@ VS_ShadeSemiTransQuad:
 	jr ra 
 	nop	
 	
+# Function: VS_TextureBlendThreePointPoly
+# Purpose: Draws a texture blended three-point polygon, a triangle, to the display area using the GPU 
+# a0: x1, a1: y1, a2: palette, a3: u1, 16(sp): v1, 20(sp): x2, 24(sp): y2, 28(sp): texpage, 32(sp): u2, 36(sp): v2, 40(sp): x3, 44(sp): y3, 48(sp): u3, 52(sp): v3
+# 56(sp): color 
+VS_TextureBlendThreePointPoly:         
+	li   t0, VS_IO                      ; vs_io_addr = (unsigned long*)0x1F800000;
+	lw   t2, 56(sp)
+	li   t1, VS_CMD_TEXTURE_BLEND_TRIANGLE    ; gpu0_cmd = VS_CMD_TEXTURE_BLEND_TRIANGLE;
+	or   t1, t2                         ; gpu0_cmd |= color;
+	sw   t1, VS_GP0(t0)                 ; *vs_gpu0 = gpu0_cmd;
+	andi a0, $FFFF                      ; x1 &= 0xFFFF;
+	sll  a1, $10                        ; y1 <<= 16;
+	or   a1, a0                         ; y1 |= x1;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y1;
+	sll  a2, $10                        ; palette <<= 16;
+	lhu  a1, 16(sp)
+	andi a3, $FF                        ; u1 &= 0xFF; 
+	andi a1, $FF                        ; v1 &= 0xFF;
+	sll  a1, $8                         ; v1 <<= 8;
+	or   a1, a3                         ; v1 |= u1;
+	or   a1, a2                         ; v1 |= palette;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v1;
+	lhu  a0, 20(sp)
+	lhu  a1, 24(sp)
+	andi a0, $FFFF                      ; x2 &= 0xFFFF;
+	sll  a1, $10                        ; y2 <<= 16;
+	or   a1, a0                         ; y2 |= x2;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y2;
+	lhu  a1, 36(sp)
+	lhu  a2, 28(sp)
+	lhu  a3, 32(sp)
+	sll  a2, $10                        ; texpage <<= 16;
+	andi a3, $FF                        ; u2 &= 0xFF; 
+	andi a1, $FF                        ; v2 &= 0xFF;
+	sll  a1, $8                         ; v2 <<= 8;
+	or   a1, a3                         ; v2 |= u2;
+	or   a1, a2                         ; v2 |= texpage;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v2;
+	lhu  a0, 40(sp)
+	lhu  a1, 44(sp)
+	andi a0, $FFFF                      ; x3 &= 0xFFFF;
+	sll  a1, $10                        ; y3 <<= 16;
+	or   a1, a0                         ; y3 |= x3;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y3;
+	lhu  a3, 48(sp)
+	lhu  a1, 52(sp)
+	andi a3, $FF                        ; u3 &= 0xFF; 
+	andi a1, $FF                        ; v3 &= 0xFF;
+	sll  a1, $8                         ; v3 <<= 8;
+	or   a1, a1, a3                     ; v3 |= u3;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v3;
+	jr ra
+	nop
+	
+	
+# Function: VS_TextureBlendSemiTransThreePointPoly
+# Purpose: Draws a texture blended semi-transparent three-point polygon, a triangle, to the display area using the GPU 
+# a0: x1, a1: y1, a2: palette, a3: u1, 16(sp): v1, 20(sp): x2, 24(sp): y2, 28(sp): texpage, 32(sp): u2, 36(sp): v2, 40(sp): x3, 44(sp): y3, 48(sp): u3, 52(sp): v3
+# 56(sp): color 
+VS_TextureBlendSemiTransThreePointPoly:         
+	li   t0, VS_IO                      ; vs_io_addr = (unsigned long*)0x1F800000;
+	lw   t2, 56(sp)
+	li   t1, VS_CMD_TEXTURE_BLEND_ST_TRIANGLE    ; gpu0_cmd = VS_CMD_TEXTURE_BLEND_TRIANGLE;
+	or   t1, t2                         ; gpu0_cmd |= color;
+	sw   t1, VS_GP0(t0)                 ; *vs_gpu0 = gpu0_cmd;
+	andi a0, $FFFF                      ; x1 &= 0xFFFF;
+	sll  a1, $10                        ; y1 <<= 16;
+	or   a1, a0                         ; y1 |= x1;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y1;
+	sll  a2, $10                        ; palette <<= 16;
+	lhu  a1, 16(sp)
+	andi a3, $FF                        ; u1 &= 0xFF; 
+	andi a1, $FF                        ; v1 &= 0xFF;
+	sll  a1, $8                         ; v1 <<= 8;
+	or   a1, a3                         ; v1 |= u1;
+	or   a1, a2                         ; v1 |= palette;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v1;
+	lhu  a0, 20(sp)
+	lhu  a1, 24(sp)
+	andi a0, $FFFF                      ; x2 &= 0xFFFF;
+	sll  a1, $10                        ; y2 <<= 16;
+	or   a1, a0                         ; y2 |= x2;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y2;
+	lhu  a1, 36(sp)
+	lhu  a2, 28(sp)
+	lhu  a3, 32(sp)
+	sll  a2, $10                        ; texpage <<= 16;
+	andi a3, $FF                        ; u2 &= 0xFF; 
+	andi a1, $FF                        ; v2 &= 0xFF;
+	sll  a1, $8                         ; v2 <<= 8;
+	or   a1, a3                         ; v2 |= u2;
+	or   a1, a2                         ; v2 |= texpage;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v2;
+	lhu  a0, 40(sp)
+	lhu  a1, 44(sp)
+	andi a0, $FFFF                      ; x3 &= 0xFFFF;
+	sll  a1, $10                        ; y3 <<= 16;
+	or   a1, a0                         ; y3 |= x3;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y3;
+	lhu  a3, 48(sp)
+	lhu  a1, 52(sp)
+	andi a3, $FF                        ; u3 &= 0xFF; 
+	andi a1, $FF                        ; v3 &= 0xFF;
+	sll  a1, $8                         ; v3 <<= 8;
+	or   a1, a1, a3                     ; v3 |= u3;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v3;
+	jr ra
+	nop
+	
 # Function: VS_TextureThreePointPoly
 # Purpose: Draws a textured three-point polygon, a triangle, to the display area using the GPU 
 # a0: x1, a1: y1, a2: palette, a3: u1, 16(sp): v1, 20(sp): x2, 24(sp): y2, 28(sp): texpage, 32(sp): u2, 36(sp): v2, 40(sp): x3, 44(sp): y3, 48(sp): u3, 52(sp): v3
@@ -697,6 +834,189 @@ VS_TextureThreePointPoly:
 	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v3;
 	jr ra
 	nop
+	
+# Function: VS_TextureSemiTransThreePointPoly
+# Purpose: Draws a semi-transparent textured three-point polygon, a triangle, to the display area using the GPU 
+# a0: x1, a1: y1, a2: palette, a3: u1, 16(sp): v1, 20(sp): x2, 24(sp): y2, 28(sp): texpage, 32(sp): u2, 36(sp): v2, 40(sp): x3, 44(sp): y3, 48(sp): u3, 52(sp): v3
+VS_TextureSemiTransThreePointPoly:         
+	li   t0, VS_IO                      ; vs_io_addr = (unsigned long*)0x1F800000;
+	li   t1, VS_CMD_TEXTURE_SEMI_TRANS_TRIANGLE    ; gpu0_cmd = VS_CMD_TEXTURE_TRIANGLE;
+	sw   t1, VS_GP0(t0)                 ; *vs_gpu0 = gpu0_cmd;
+	andi a0, $FFFF                      ; x1 &= 0xFFFF;
+	sll  a1, $10                        ; y1 <<= 16;
+	or   a1, a0                         ; y1 |= x1;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y1;
+	sll  a2, $10                        ; palette <<= 16;
+	lhu  a1, 16(sp)
+	andi a3, $FF                        ; u1 &= 0xFF; 
+	andi a1, $FF                        ; v1 &= 0xFF;
+	sll  a1, $8                         ; v1 <<= 8;
+	or   a1, a3                         ; v1 |= u1;
+	or   a1, a2                         ; v1 |= palette;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v1;
+	lhu  a0, 20(sp)
+	lhu  a1, 24(sp)
+	andi a0, $FFFF                      ; x2 &= 0xFFFF;
+	sll  a1, $10                        ; y2 <<= 16;
+	or   a1, a0                         ; y2 |= x2;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y2;
+	lhu  a1, 36(sp)
+	lhu  a2, 28(sp)
+	lhu  a3, 32(sp)
+	sll  a2, $10                        ; texpage <<= 16;
+	andi a3, $FF                        ; u2 &= 0xFF; 
+	andi a1, $FF                        ; v2 &= 0xFF;
+	sll  a1, $8                         ; v2 <<= 8;
+	or   a1, a3                         ; v2 |= u2;
+	or   a1, a2                         ; v2 |= texpage;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v2;
+	lhu  a0, 40(sp)
+	lhu  a1, 44(sp)
+	andi a0, $FFFF                      ; x3 &= 0xFFFF;
+	sll  a1, $10                        ; y3 <<= 16;
+	or   a1, a0                         ; y3 |= x3;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y3;
+	lhu  a3, 48(sp)
+	lhu  a1, 52(sp)
+	andi a3, $FF                        ; u3 &= 0xFF; 
+	andi a1, $FF                        ; v3 &= 0xFF;
+	sll  a1, $8                         ; v3 <<= 8;
+	or   a1, a1, a3                     ; v3 |= u3;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v3;
+	jr ra
+	nop
+	
+# Function: VS_TextureBlendFourPointPoly
+# Purpose: Draws a texture blended four-point polygon, a quad, to the display area using the GPU 
+# a0: x1, a1: y1, a2: palette, a3: u1, 16(sp): v1, 20(sp): x2, 24(sp): y2, 28(sp): texpage, 32(sp): u2, 36(sp): v2, 40(sp): x3, 44(sp): y3, 48(sp): u3, 52(sp): v3
+# 56(sp): x4, 60(sp): y4, 64(sp): u4, 68(sp): v4, 72(sp): color 
+VS_TextureBlendFourPointPoly:         
+	li   t0, VS_IO                      ; vs_io_addr = (unsigned long*)0x1F800000;
+	lw   t2, 72(sp)
+	li   t1, VS_CMD_TEXTURE_BLEND_QUAD  ; gpu0_cmd = VS_CMD_TEXTURE_BLEND_QUAD;
+	or   t1, t2                         ; gpu0_cmd |= color;
+	sw   t1, VS_GP0(t0)                 ; *vs_gpu0 = gpu0_cmd;
+	andi a0, $FFFF                      ; x1 &= 0xFFFF;
+	sll  a1, $10                        ; y1 <<= 16;
+	or   a1, a0                         ; y1 |= x1;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y1;
+	sll  a2, $10                        ; palette <<= 16;
+	lhu  a1, 16(sp)
+	andi a3, $FF                        ; u1 &= 0xFF; 
+	andi a1, $FF                        ; v1 &= 0xFF;
+	sll  a1, $8                         ; v1 <<= 8;
+	or   a1, a3                         ; v1 |= u1;
+	or   a1, a2                         ; v1 |= palette;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v1;
+	lhu  a0, 20(sp)
+	lhu  a1, 24(sp)
+	andi a0, $FFFF                      ; x2 &= 0xFFFF;
+	sll  a1, $10                        ; y2 <<= 16;
+	or   a1, a0                         ; y2 |= x2;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y2;
+	lhu  a1, 36(sp)
+	lhu  a2, 28(sp)
+	lhu  a3, 32(sp)
+	sll  a2, $10                        ; texpage <<= 16;
+	andi a3, $FF                        ; u2 &= 0xFF; 
+	andi a1, $FF                        ; v2 &= 0xFF;
+	sll  a1, $8                         ; v2 <<= 8;
+	or   a1, a3                         ; v2 |= u2;
+	or   a1, a2                         ; v2 |= texpage;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v2;
+	lhu  a0, 40(sp)
+	lhu  a1, 44(sp)
+	andi a0, $FFFF                      ; x3 &= 0xFFFF;
+	sll  a1, $10                        ; y3 <<= 16;
+	or   a1, a0                         ; y3 |= x3;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y3;
+	lhu  a3, 48(sp)
+	lhu  a1, 52(sp)
+	andi a3, $FF                        ; u3 &= 0xFF; 
+	andi a1, $FF                        ; v3 &= 0xFF;
+	sll  a1, $8                         ; v3 <<= 8;
+	or   a1, a1, a3                     ; v3 |= u3;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v3;
+	lhu  a0, 56(sp)
+	lhu  a1, 60(sp)
+	andi a0, $FFFF                      ; x4 &= 0xFFFF;
+	sll  a1, $10                        ; y4 <<= 16;
+	or   a1, a0                         ; y4 |= x4;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y4;
+	lhu  a2, 64(sp)
+	lhu  a3, 68(sp)
+	andi a2, $FF                        ; u4 &= 0xFF;
+	sll  a3, $8                         ; v4 <<= 8;
+	or   a3, a2                         ; v4 |= u4;
+	sw   a3, VS_GP0(t0)                 ; *vs_gpu0 = v4;
+	jr ra
+	nop	
+	
+# Function: VS_TextureBlendSemiTransFourPointPoly
+# Purpose: Draws a semi-transparent texture blended four-point polygon, a quad, to the display area using the GPU 
+# a0: x1, a1: y1, a2: palette, a3: u1, 16(sp): v1, 20(sp): x2, 24(sp): y2, 28(sp): texpage, 32(sp): u2, 36(sp): v2, 40(sp): x3, 44(sp): y3, 48(sp): u3, 52(sp): v3
+# 56(sp): x4, 60(sp): y4, 64(sp): u4, 68(sp): v4, 72(sp): color 
+VS_TextureBlendSemiTransFourPointPoly:         
+	li   t0, VS_IO                      ; vs_io_addr = (unsigned long*)0x1F800000;
+	lw   t2, 72(sp)
+	li   t1, VS_CMD_TEXTURE_ST_BLEND_QUAD  ; gpu0_cmd = VS_CMD_TEXTURE_ST_BLEND_QUAD;
+	or   t1, t2                         ; gpu0_cmd |= color;
+	sw   t1, VS_GP0(t0)                 ; *vs_gpu0 = gpu0_cmd;
+	andi a0, $FFFF                      ; x1 &= 0xFFFF;
+	sll  a1, $10                        ; y1 <<= 16;
+	or   a1, a0                         ; y1 |= x1;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y1;
+	sll  a2, $10                        ; palette <<= 16;
+	lhu  a1, 16(sp)
+	andi a3, $FF                        ; u1 &= 0xFF; 
+	andi a1, $FF                        ; v1 &= 0xFF;
+	sll  a1, $8                         ; v1 <<= 8;
+	or   a1, a3                         ; v1 |= u1;
+	or   a1, a2                         ; v1 |= palette;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v1;
+	lhu  a0, 20(sp)
+	lhu  a1, 24(sp)
+	andi a0, $FFFF                      ; x2 &= 0xFFFF;
+	sll  a1, $10                        ; y2 <<= 16;
+	or   a1, a0                         ; y2 |= x2;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y2;
+	lhu  a1, 36(sp)
+	lhu  a2, 28(sp)
+	lhu  a3, 32(sp)
+	sll  a2, $10                        ; texpage <<= 16;
+	andi a3, $FF                        ; u2 &= 0xFF; 
+	andi a1, $FF                        ; v2 &= 0xFF;
+	sll  a1, $8                         ; v2 <<= 8;
+	or   a1, a3                         ; v2 |= u2;
+	or   a1, a2                         ; v2 |= texpage;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v2;
+	lhu  a0, 40(sp)
+	lhu  a1, 44(sp)
+	andi a0, $FFFF                      ; x3 &= 0xFFFF;
+	sll  a1, $10                        ; y3 <<= 16;
+	or   a1, a0                         ; y3 |= x3;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y3;
+	lhu  a3, 48(sp)
+	lhu  a1, 52(sp)
+	andi a3, $FF                        ; u3 &= 0xFF; 
+	andi a1, $FF                        ; v3 &= 0xFF;
+	sll  a1, $8                         ; v3 <<= 8;
+	or   a1, a1, a3                     ; v3 |= u3;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v3;
+	lhu  a0, 56(sp)
+	lhu  a1, 60(sp)
+	andi a0, $FFFF                      ; x4 &= 0xFFFF;
+	sll  a1, $10                        ; y4 <<= 16;
+	or   a1, a0                         ; y4 |= x4;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y4;
+	lhu  a2, 64(sp)
+	lhu  a3, 68(sp)
+	andi a2, $FF                        ; u4 &= 0xFF;
+	sll  a3, $8                         ; v4 <<= 8;
+	or   a3, a2                         ; v4 |= u4;
+	sw   a3, VS_GP0(t0)                 ; *vs_gpu0 = v4;
+	jr ra
+	nop	
 	
 # Function: VS_TextureFourPointPoly
 # Purpose: Draws a textured four-point polygon, a quad, to the display area using the GPU 
@@ -762,22 +1082,141 @@ VS_TextureFourPointPoly:
 	jr ra
 	nop
 	
-# Function: VS_ResetGPU
-# Purpose: Sends a reset command to the GP1 control register
-VS_ResetGPU:
-	li a0, VS_IO 
-	sw zero, VS_GP1(a0)
-	jr ra 
+# Function: VS_TextureSemiTransFourPointPoly
+# Purpose: Draws a semi-transparent textured four-point polygon, a quad, to the display area using the GPU 
+# a0: x1, a1: y1, a2: palette, a3: u1, 16(sp): v1, 20(sp): x2, 24(sp): y2, 28(sp): texpage, 32(sp): u2, 36(sp): v2, 40(sp): x3, 44(sp): y3, 48(sp): u3, 52(sp): v3
+# 56(sp): x4, 60(sp): y4, 64(sp): u4, 68(sp): v4
+VS_TextureSemiTransFourPointPoly:         
+	li   t0, VS_IO                      ; vs_io_addr = (unsigned long*)0x1F800000;
+	li   t1, VS_CMD_TEXTURE_SEMI_TRANS_QUAD ; gpu0_cmd = VS_CMD_SEMI_TRANS_TEXTURE_QUAD;
+	sw   t1, VS_GP0(t0)                 ; *vs_gpu0 = gpu0_cmd;
+	andi a0, $FFFF                      ; x1 &= 0xFFFF;
+	sll  a1, $10                        ; y1 <<= 16;
+	or   a1, a0                         ; y1 |= x1;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y1;
+	sll  a2, $10                        ; palette <<= 16;
+	lhu  a1, 16(sp)
+	andi a3, $FF                        ; u1 &= 0xFF; 
+	andi a1, $FF                        ; v1 &= 0xFF;
+	sll  a1, $8                         ; v1 <<= 8;
+	or   a1, a3                         ; v1 |= u1;
+	or   a1, a2                         ; v1 |= palette;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v1;
+	lhu  a0, 20(sp)
+	lhu  a1, 24(sp)
+	andi a0, $FFFF                      ; x2 &= 0xFFFF;
+	sll  a1, $10                        ; y2 <<= 16;
+	or   a1, a0                         ; y2 |= x2;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y2;
+	lhu  a1, 36(sp)
+	lhu  a2, 28(sp)
+	lhu  a3, 32(sp)
+	sll  a2, $10                        ; texpage <<= 16;
+	andi a3, $FF                        ; u2 &= 0xFF; 
+	andi a1, $FF                        ; v2 &= 0xFF;
+	sll  a1, $8                         ; v2 <<= 8;
+	or   a1, a3                         ; v2 |= u2;
+	or   a1, a2                         ; v2 |= texpage;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v2;
+	lhu  a0, 40(sp)
+	lhu  a1, 44(sp)
+	andi a0, $FFFF                      ; x3 &= 0xFFFF;
+	sll  a1, $10                        ; y3 <<= 16;
+	or   a1, a0                         ; y3 |= x3;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y3;
+	lhu  a3, 48(sp)
+	lhu  a1, 52(sp)
+	andi a3, $FF                        ; u3 &= 0xFF; 
+	andi a1, $FF                        ; v3 &= 0xFF;
+	sll  a1, $8                         ; v3 <<= 8;
+	or   a1, a1, a3                     ; v3 |= u3;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v3;
+	lhu  a0, 56(sp)
+	lhu  a1, 60(sp)
+	andi a0, $FFFF                      ; x4 &= 0xFFFF;
+	sll  a1, $10                        ; y4 <<= 16;
+	or   a1, a0                         ; y4 |= x4;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y4;
+	lhu  a2, 64(sp)
+	lhu  a3, 68(sp)
+	andi a2, $FF                        ; u4 &= 0xFF;
+	sll  a3, $8                         ; v4 <<= 8;
+	or   a3, a2                         ; v4 |= u4;
+	sw   a3, VS_GP0(t0)                 ; *vs_gpu0 = v4;
+	jr ra
 	nop
 	
-# Function: VS_ClearGPUFIFO
-# Purpose: Sends a reset gpu FIFO command to the GP1 control register
-VS_ClearGPUFIFO:
-	li a0, VS_IO 
-	li a1, $01000000
-	sw a1, VS_GP1(a0)
-	jr ra 
-	nop
+# Function: VS_ShadeTextureBlendFourPointPoly
+# Purpose: Draws a gouraud-shaded, texture blended four-point polygon, a quad, to the display area using the GPU 
+# a0: x1, a1: y1, a2: palette, a3: u1, 16(sp): v1, 20(sp): x2, 24(sp): y2, 28(sp): texpage, 32(sp): u2, 36(sp): v2, 40(sp): x3, 44(sp): y3, 48(sp): u3, 52(sp): v3
+# 56(sp): x4, 60(sp): y4, 64(sp): u4, 68(sp): v4, 72(sp): color1, 76(sp): color2, 80(sp): color3, 84(sp): color4 
+VS_ShadeTextureBlendFourPointPoly:         
+	li   t0, VS_IO                      ; vs_io_addr = (unsigned long*)0x1F800000;
+	lw   t2, 72(sp)
+	li   t1, VS_CMD_SHADE_TEXTURE_QUAD  ; gpu0_cmd = VS_CMD_SHADE_TEXTURE_QUAD;
+	or   t1, t2                         ; gpu0_cmd |= color;
+	sw   t1, VS_GP0(t0)                 ; *vs_gpu0 = gpu0_cmd;
+	andi a0, $FFFF                      ; x1 &= 0xFFFF;
+	sll  a1, $10                        ; y1 <<= 16;
+	or   a1, a0                         ; y1 |= x1;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y1;
+	sll  a2, $10                        ; palette <<= 16;
+	lhu  a1, 16(sp)
+	andi a3, $FF                        ; u1 &= 0xFF; 
+	andi a1, $FF                        ; v1 &= 0xFF;
+	sll  a1, $8                         ; v1 <<= 8;
+	or   a1, a3                         ; v1 |= u1;
+	or   a1, a2                         ; v1 |= palette;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v1;
+	lw   t2, 76(sp)
+	lhu  a0, 20(sp)
+	sw   t2, VS_GP0(t0)                 ; *vs_gp0 = color2;
+	lhu  a1, 24(sp)
+	andi a0, $FFFF                      ; x2 &= 0xFFFF;
+	sll  a1, $10                        ; y2 <<= 16;
+	or   a1, a0                         ; y2 |= x2;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y2;
+	lhu  a1, 36(sp)
+	lhu  a2, 28(sp)
+	lhu  a3, 32(sp)
+	sll  a2, $10                        ; texpage <<= 16;
+	andi a3, $FF                        ; u2 &= 0xFF; 
+	andi a1, $FF                        ; v2 &= 0xFF;
+	sll  a1, $8                         ; v2 <<= 8;
+	or   a1, a3                         ; v2 |= u2;
+	or   a1, a2                         ; v2 |= texpage;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v2;
+	lw   t2, 80(sp)
+	lhu  a0, 40(sp)
+	sw   t2, VS_GP0(t0)                 ; *vs_gp0 = color3;
+	lhu  a1, 44(sp)
+	andi a0, $FFFF                      ; x3 &= 0xFFFF;
+	sll  a1, $10                        ; y3 <<= 16;
+	or   a1, a0                         ; y3 |= x3;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y3;
+	lhu  a3, 48(sp)
+	lhu  a1, 52(sp)
+	andi a3, $FF                        ; u3 &= 0xFF; 
+	andi a1, $FF                        ; v3 &= 0xFF;
+	sll  a1, $8                         ; v3 <<= 8;
+	or   a1, a1, a3                     ; v3 |= u3;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = v3;
+	lw   t2, 84(sp)
+	lhu  a0, 56(sp)
+	lhu  a1, 60(sp)
+	sw   t2, VS_GP0(t0)                 ; *vs_gp0 = color4;
+	andi a0, $FFFF                      ; x4 &= 0xFFFF;
+	sll  a1, $10                        ; y4 <<= 16;
+	or   a1, a0                         ; y4 |= x4;
+	sw   a1, VS_GP0(t0)                 ; *vs_gpu0 = y4;
+	lhu  a2, 64(sp)
+	lhu  a3, 68(sp)
+	andi a2, $FF                        ; u4 &= 0xFF;
+	sll  a3, $8                         ; v4 <<= 8;
+	or   a3, a2                         ; v4 |= u4;
+	sw   a3, VS_GP0(t0)                 ; *vs_gpu0 = v4;
+	jr ra
+	nop	
 	
 # Function: VS_TransferImageDataToVram
 # Purpose: Peforms a manual transfer of word-aligned data by the CPU from main memory to VRAM 
@@ -916,6 +1355,57 @@ WaitDMA:
 	li a2, VS_DMA_ENABLE        ; cmd = VS_DMA_ENABLE; (delay slot)
 	and a1, a1, a2              ; dma &= cmd;
 	bnez a1, WaitDMA            ; if(dma) { goto WaitDMA; }
+	nop 
+	jr ra 
+	nop
+	
+# Function: VS_DMAImageDataFromVram
+# Purpose: Peforms a DMA transfer of word-aligned data by the CPU from VRAM to main memory
+# a0: x, a1: y, a2: width, a3: height, 16(sp): data
+VS_DMAImageDataFromVram:
+	li t0, VS_IO                ; vs_io = (unsigned long*)VS_IO;
+	li t1, VS_CMD_DISABLE_DMA   ; vs_cmd = VS_CMD_DISABLE_DMA;
+	sw t1, VS_GP1(t0)           ; *vs_gp1 = vs_cmd;
+	li t1, VS_CMD_CLEAR_CACHE   ; vs_cmd = VS_CMD_CLEAR_CACHE;
+	sw t1, VS_GP0(t0)           ; *vs_gp0 = vs_cmd;
+	li t1, VS_CMD_VRAM_TO_CPU   ; vs_cmd = VS_CMD_VRAM_TO_CPU;
+	sw t1, VS_GP0(t0)           ; *vs_gp0 = vs_cmd;
+	andi a0, $FFFF              ; x &= 0xFFFF;
+	sll a1, 16                  ; y <<= 16;
+	addu a1, a0                 ; y += x;
+	sw a1, VS_GP0(t0)           ; *vs_gp0 = y;
+	andi a0, a2, $FFFF          ; width &= 0xFFFF; 
+	sll a1, a3, 16              ; height <<= 16;
+	addu a1, a0                 ; height += width;
+	sw a1, VS_GP0(t0)           ; *vs_gp0 = height;
+	li a0, VS_CMD_ENABLE_DMA_READ    ; vs_cmd = VS_CMD_ENABLE_DMA_READ;
+	sw a0, VS_GP1(t0)           ; *vs_gp1 = vs_cmd;
+	mult a2, a3                 
+	mflo a0                     ; size = width*height;
+	lw a1, 16(sp)
+	sra a0, 1                   ; size /= 2;
+	sw a1, VS_GPU_DMA(t0)       ; *vs_gpu_dma = data;
+	li a1, $10                  ; dma_size = 16;     
+	blt a0, a1, CompleteDMARead ; if(size < dma_size) { goto CompleteDMARead; }
+	nop                  
+vs_align_read:
+	andi t1, a0, $f           
+	bnez t1, CompleteDMARead    ; if(!(size % 16)) { goto CompleteDMARead; }
+	nop
+vs_align_read_size:
+	addiu a0, 15                ; size += 15;
+CompleteDMARead:
+	sra a0, a0, 4               ; size /= 16;
+	sll a0, a0, 16              ; size <<= 16;
+	ori a0, a0, 16    	        ; size |= 16;
+	sw a0, VS_GPU_BCR(t0)       ; *gpu_bcr = size;
+	li t2, $01000200   	        ; mode = read_mode;
+	sw t2, VS_GPU_CHCR(t0)      ; *gpu_chcr = mode;
+WaitDMARead:
+	lw a1, VS_GPU_CHCR(t0)      ; dma = *vs_gpu_chchr;
+	li a2, VS_DMA_ENABLE        ; cmd = VS_DMA_ENABLE; (delay slot)
+	and a1, a1, a2              ; dma &= cmd;
+	bnez a1, WaitDMARead        ; if(dma) { goto WaitDMA; }
 	nop 
 	jr ra 
 	nop

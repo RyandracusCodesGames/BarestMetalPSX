@@ -66,9 +66,9 @@ VS_PAL equ 8
 VS_BPP_15 equ 0
 VS_BPP24 equ 16
 VS_DISP_X1 equ 0 
-VS_DISP_Y1 equ 240 
+VS_DISP_Y1 equ 0 
 VS_DISP_X2 equ 256 
-VS_DISP_Y2 equ 480
+VS_DISP_Y2 equ 240
 VS_OFFSET equ 0
 VS_WIDTH equ 256 
 VS_HEIGHT equ 240
@@ -107,18 +107,7 @@ VS_JOY_UP equ $1000
 VS_JOY_DOWN equ $4000
 VS_JOY_LEFT equ $8000
 VS_JOY_RIGHT equ $2000
-VS_JOY_X equ 64
-VS_JOY_CIRCLE equ 32
-VS_JOY_TRIANGLE equ 16
-VS_JOY_SQUARE equ $0080
-VS_JOY_SELECT equ $0100
-VS_JOY_START equ $0800
-VS_JOY_L1 equ 4
-VS_JOY_R1 equ 8
-VS_JOY_L2 equ 1
-VS_JOY_R2 equ 2
-VS_JOY_L3 equ $0200
-VS_JOY_R3 equ $0400
+VS_JOY_X equ $0040
 
 VS_RED equ 75 
 VS_GREEN equ 0 
@@ -126,11 +115,6 @@ VS_BLUE equ 130
 
 VS_FONTW equ 8 
 VS_FONTH equ 11
-
-; IMMUTABLE GAME VARIABLES
-
-; MUTABLE GAME VARIABLES
- 
 
 InitGPU:	
 	li t0, VS_IO                          ; vs_io_addr = (unsigned long*)VS_IO;
@@ -188,49 +172,6 @@ InitGPU:
 	li t1, $800                           ; gpu_dma_enable = $800;
 	sw t1, 0(t2)                          ; *dma_address = gpu_dma_enable;
 	addi sp, -80
-InitPad: 
-    li t1,VS_CMD_INIT_PAD                 ; OutdatedPadInitAndStart() Function Is $15
-    li a0, $20000001
-    li t2, $B0                            ; Call a B-Type BIOS Function 
-    la a1, PadBuffer                      ; Set Pad Buffer Address To Automatically Update Each Frame
-    jalr t2                               ; Jump To BIOS Routine OutdatedPadInitAndStart()
-    nop ; Delay Slot
-Input:
-PRESSLEFT:
-    lw t0, PadData                        ; pad_data = GetPadData();
-    nop                  
-    andi t0, VS_JOY_LEFT                  ; pad_data &= VS_JOY_LEFT;
-    beqz t0, PRESSRIGHT         		  ; if(!pad_data) { goto PRESSRIGHT; }
-    nop 
-	; HANDLE LEFT PRESSED INPUT HERE
-PRESSRIGHT:
-    lw t0, PadData                        ; pad_data = GetPadData();
-    nop  
-    andi t0, VS_JOY_RIGHT                 ; pad_data &= VS_JOY_RIGHT;
-    beqz t0, PRESSUP    		          ; if(!pad_data){ goto PRESSUP; }
-    nop  
-	; HANDLE RIGHT PRESSED INPUT HERE
-PRESSUP:
-    lw t0, PadData                        ; pad_data = GetPadData();
-    nop  
-    andi t0, VS_JOY_UP                    ; pad_data &= VS_JOY_UP;
-    beqz t0, PRESSDOWN    		          ; if(!pad_data){ goto PRESSDOWN; }
-    nop  
-	; HANDLE UP PRESSED INPUT HERE
-PRESSDOWN:
-    lw t0, PadData                        ; pad_data = GetPadData();
-    nop  
-    andi t0, VS_JOY_DOWN                  ; pad_data &= VS_JOY_DOWN;
-    beqz t0, PRESSX    		              ; if(!pad_data){ goto PRESSX; }
-    nop  
-	; HANDLE DOWN PRESSED INPUT HERE
-PRESSX:
-    lw t0, PadData                        ; pad_data = GetPadData();
-    nop  
-    andi t0, VS_JOY_X                     ; pad_data &= VS_JOY_X;
-    beqz t0, FillScreen    		          ; if(!pad_data){ goto FillScreen; }
-    nop  
-	; HANDLE X PRESSED INPUT HERE
 FillScreen:
 	li t0, VS_IO
 	li t1, VS_FILL_VRAM                   ; vs_cmd = VS_FILL_VRAM;
@@ -254,77 +195,55 @@ FillScreen:
 	sll t3, t3, $10                       ; y2 <<= 16;
 	addu t3, t2                           ; y2 += x2;
 	sw t3, VS_GP0(t0)                     ; *vs_gp0 = y2;
-BufferSwap:
-	li t0, VS_IO
-	li t1, VS_VRAM_TO_VRAM                ; vs_cmd = VS_VRAM_TO_VRAM;
-	sw t1, VS_GP0(t0)                     ; *vs_gp0 = vs_cmd;
-	li t2, VS_DISP_X1                     ; x1 = VS_DISP_X1;
-	li t3, VS_DISP_Y1                     ; y1 = VS_DISP_Y1;
-	andi t2, $FFFF                        ; x1 &= $FFFF;
-	sll t3, t3, $10                       ; y1 <<= 16;
-	addu t3, t2                           ; y1 += x1;
-	sw t3, VS_GP0(t0)                     ; *vs_gp0 = y1;
-	sw zero, VS_GP0(t0)                   ; *vs_gp0 = 0;
-	li t2, VS_WIDTH                       ; x2 = VS_WIDTH;
-	li t3, VS_HEIGHT                      ; y2 = VS_HEIGHT;
-	andi t2, $FFFF                        ; x2 &= $FFFF;
-	sll t3, t3, $10                       ; y2 <<= 16;
-	addu t3, t2                           ; y2 += x2;
-	sw t3, VS_GP0(t0)                     ; *vs_gp0 = y2;
-	la a1, PadBuffer                      ; pad_addr = PadBuffer;
-WaitVSync:                                ; Wait For Vertical Retrace Period & Store XOR Pad Data
-	lw t0, 0(a1)                          ; data_sent = *(unsigned long*)pad_addr;
-	nop                                   
-	beqz t0, WaitVSync 					  ; if(!data_sent) { goto WaitVSync; }
-	nor t0, r0    						  ; data_sent = !(data_sent | 0); (Delay Slot)
-	sw r0,0(a1)                           ; *(unsigned long*)pad_addr = 0;
-	sw t0, PadData                        ; *(unsigned long*)PadData = data_sent;
+DrawStrings:
+	li a0, 5                              ; x = 5;
+	li a1, 20                             ; y = 20;
+	la a2, Prompt1                        ; string = Prompt1;
+	jal VS_DrawString                     ; VS_DrawString(x,y,string);
+	nop
+	li a0, 5                              ; x = 5;
+	li a1, 35                             ; y = 35;
+	la a2, String                         ; string = String;
+	jal VS_DrawString                     ; VS_DrawString(x,y,string);
+	nop
+	li a0, 5                              ; x = 5;
+	li a1, 60                             ; y = 60;
+	la a2, Prompt2                        ; string = Prompt2;
+	jal VS_DrawString                     ; VS_DrawString(x,y,string);
+	nop
+	li a0, 5                              ; x = 5;
+	li a1, 75                             ; y = 75;
+	la a2, Substring                      ; string = Substring;
+	jal VS_DrawString                     ; VS_DrawString(x,y,string);
+	nop
+	li a0, 5                              ; x = 5;
+	li a1, 100                            ; y = 100;
+	la a2, Prompt3                        ; string = Prompt3;
+	jal VS_DrawString                     ; VS_DrawString(x,y,string);
+	nop
+	la a0, String                         ; str = String;
+	la a1, Substring                      ; substr = Substr;
+	jal VS_Strstr                         ; ret = VS_Strstr(str,substr);
+	nop
+	li a0, 5                              ; x = 5;
+	li a1, 125                            ; y = 125;
+	move a2, v0                           ; string = ret;
+	jal VS_DrawString                     ; VS_DrawString(x,y,string);
+	nop
 main:
-	b Input 
+	b main 
 	nop
 	addi sp, 80
 	
-# Function: DetectAABBCollision
-# Purpose: Detects whether or two rectangles are colliding with one another 
-# a0: x1, a1: y1, a2: w1, a3: h1, 16(sp): x2, 20(sp): y2, 24(sp): w2, 28(sp): h2 
-DetectAABBCollision:
-	lw t1, 16(sp)
-	add t0, a0, a2        ; size1 = x1 + w1;
-	ble t0, t1, AABBFalse ; if(size1 < x2) { collide = false; goto AABBFalse; }
-	lw t2, 24(sp) 
-	nop
-	add t0, t1, t2        ; size2 = x2 + w2;
-	bge a0, t0, AABBFalse ; if(x1 >= size2) { collide = false; goto AABBFalse; }
-	lw t2, 20(sp)
-	add t1, a1, a3        ; size1 = y1 + h1;
-	ble t1, t2, AABBFalse ; if(size1 < y2) { collide = false; goto AABBFalse; }
-	lw t4, 28(sp)
-	nop
-	add t3, t2, t4        ; size2 = y2 + h2;
-	bge a1, t3, AABBFalse ; if(y1 < size2) { collide = false; goto AABBFalse; }
-	li v0, 1 
-	jr ra 
-	nop
-AABBFalse:
-	li v0, 0 
-	jr ra 
-	nop
-	
-.include "../lib/audio.asm"
-.include "../lib/graphics.asm"
-.include "../lib/math.asm"
-.include "../lib/string.asm"
-.include "../lib/mem.asm"
-.include "../lib/decompression.asm"
+.include "../../../lib/string.asm"
 	
 # Function: VS_DrawString
 # Purpose: Draws a string to the display area 
 # a0: x, a1: y, a2: string
 VS_DrawString:
-	addiu sp, sp, -12
+	addiu sp, sp, -8
     sw ra, 0(sp)
     sw s0, 4(sp)
-	sw a0, 8(sp)
 	move t1, a0          ; orgx = x;
 	move t2, a1          ; orgy = y;
 	li t0, VS_IO
@@ -371,56 +290,14 @@ vs_draw_space:
 	b   DrawChar
 	addi t1, t1, VS_FONTW ; x += VS_FONTW;
 vs_draw_new_line:
-	lw t1, 8(sp)
 	b   DrawChar
 	addi a1, a1, VS_FONTH ; y += VS_FONTH;
 end:
 	lw ra, 0(sp)
     lw s0, 4(sp)
-    addiu sp, sp, 12
+    addiu sp, sp, 8
     jr ra
 	nop
-	
-# Function: VS_Int2String
-# Purpose: Converts an integer into an ASCII string
-# a0: string, a1: int
-VS_Int2String:
-	li t0, 0         		 ; digits = 0;
-	bgez a1, InitCountDigits ; if(int >= 0) { goto InitCountDigits; }
-	li v1, 0
-Abs:
-	li v1, 1
-	li t1, 45                ; char = '-';
-	sb t1, 0(a0)             ; *string = char;
-	addi a0, 1               ; string++;
-	sub a1, zero, a1         ; int = 0 - int;
-InitCountDigits:
-	li t1, 10        		 ; base = 10;
-	move t2, a1        		 ; tempInt = int; 
-CountDigits:
-	divu t2, t1              ; tempInt /= base;
-	mflo t2       
-	addi t0, 1               ; digits++;
-	bgtz t2, CountDigits     ; if(tempInt > 0) { goto CountDigits; }
-	nop
-ConvertInt:
-	subi t2, t0, 1   		 ; tempDigits = digits - 1;
-	add a0, t2   		     ; buf += tempDigits;
-ConvertLoop:         
-	divu  a1, t1             ; result = int % base;
-	mfhi  t3
-	addi  t3, $30            ; result += $30;
-	sb    t3, 0(a0)          ; *string = result;
-	mflo  a1 
-	bgtz  a1, ConvertLoop    ; if(int > 0) { goto ConvertLoop; }
-	subi  a0, 1              ; string--;
-	beqz v1, finish_digits   ; if(!neg) { goto finish_digits; }
-	nop
-	addi t0, 1               ; digits++;
-finish_digits:
-	move v0, t0
-	jr ra 
-	nop	
 		
 # Function: VS_CharData
 # Purpose: Returns the image data of the input character
@@ -509,12 +386,6 @@ vs_char_minus:
 	nop
 
 .data
-PadBuffer:
-	.dw 0 
-
-PadData:
-	.dw 0
-	
 VS_0: 
 	.dh $0, $0, $0, $0, $0, $0, $0, $0, $0, $0, $7fff, $7fff, $7fff, $7fff, $0, $0, $0, $7fff, $0, $0, $0, $0 
 	.dh $7fff, $0, $0, $7fff, $0, $0, $0, $0, $7fff, $0, $0, $7fff, $0, $0, $0, $7fff, $7fff, $0, $0, $7fff, $0
@@ -583,3 +454,14 @@ VS_minus:
 .align, 4
 Font:
 	.incbin "font.bin"
+
+Prompt1:
+	.ascii "STRING - "
+Prompt2:
+	.ascii "SUBSTRING - "
+Prompt3:
+	.ascii "STRSTR"
+String:
+	.ascii "TOMATO CARROT ONION"
+Substring:
+	.ascii "ON"

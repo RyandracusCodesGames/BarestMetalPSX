@@ -180,7 +180,7 @@ InitGPU:
 	sw t1, 0(t2)                          ; *dma_address = dma_priority;
 	li t1, $800                           ; gpu_dma_enable = $800;
 	sw t1, 0(t2)                          ; *dma_address = gpu_dma_enable;
-	addi sp, -80 
+	addi sp, -88 
 UploadTextureToVram:
 	li a0, VS_DMA_VRAM_X                  ; vram_x = VS_DMA_VRAM_X;
 	li a1, VS_DMA_VRAM_Y                  ; vram_y = VS_DMA_VRAM_Y;
@@ -495,7 +495,7 @@ WaitVSync:                                ; Wait For Vertical Retrace Period & S
 main:
 	b Input 
 	nop
-	addi sp, 80
+	addi sp, 88
 	
 # Function: DetectAABBCollision
 # Purpose: Detects whether or two rectangles are colliding with one another 
